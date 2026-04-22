@@ -3,72 +3,72 @@ import requests
 import pandas as pd
 import io
 
-# Configuración de la página
-st.set_page_config(page_title="Validador de URLs Turaco", page_icon="📷")
+# Configuración visual
+st.set_page_config(page_title="Validador SKU Turaco", page_icon="📦")
 
-st.title("📷 Validador de Imágenes y Extractor de SKU")
-st.markdown("Sube un archivo con URLs para verificar cuáles son imágenes reales y extraer su SKU.")
-
-def extraer_sku(url):
-    try:
-        parte_sku = url.split("/imagenes/")[1]
-        sku = parte_sku.split("/")[0]
-        return sku
-    except:
-        return "N/A"
+st.title("📦 Validador de Imágenes por SKU")
+st.markdown("""
+Sube tu archivo Excel. El script revisará las URLs y te dirá cuáles son imágenes reales 
+y cuáles redirigen a la página de error.
+""")
 
 def verificar_url(url):
+    """Verifica si la URL apunta a una imagen real."""
     try:
-        # Usamos un timeout corto para que la app no se bloquee
+        # Petición rápida para no descargar toda la imagen
         r = requests.head(url, allow_redirects=True, timeout=3)
         content_type = r.headers.get('Content-Type', '')
+        
+        # Si el status es 200 y el contenido es una imagen
         if r.status_code == 200 and "image" in content_type:
             return "Válida"
         else:
-            return "Página de Error / No encontrada"
+            return "Página de Error"
     except:
         return "Error de Conexión"
 
 # --- Interfaz de Usuario ---
-archivo_subido = st.file_uploader("Sube tu archivo de texto (.txt) con una URL por línea", type=["txt"])
+archivo_subido = st.file_uploader("Sube tu archivo Excel (.xlsx)", type=["xlsx"])
 
 if archivo_subido is not None:
-    # Leer URLs del archivo
-    contenido = archivo_subido.read().decode("utf-8")
-    urls = [line.strip() for line in contenido.split("\n") if line.strip()]
+    # Leer el Excel
+    df = pd.read_excel(archivo_subido)
     
-    if st.button("Iniciar Procesamiento"):
+    st.write("Vista previa del archivo subido:")
+    st.dataframe(df.head())
+
+    # Dejamos que el usuario elija las columnas si los nombres varían
+    col_sku = st.selectbox("Selecciona la columna del SKU", df.columns, index=0)
+    col_url = st.selectbox("Selecciona la columna de la URL", df.columns, index=1)
+    
+    if st.button("🔍 Validar Imágenes"):
         resultados = []
         progreso = st.progress(0)
-        status_text = st.empty()
+        total = len(df)
 
-        for i, url in enumerate(urls):
-            # Actualizar barra de progreso
-            porcentaje = (i + 1) / len(urls)
-            progreso.progress(porcentaje)
-            status_text.text(f"Procesando {i+1} de {len(urls)}...")
-            
-            # Lógica principal
-            sku = extraer_sku(url)
+        # Iterar sobre las filas del DataFrame
+        for i, row in df.iterrows():
+            url = str(row[col_url])
             estado = verificar_url(url)
+            resultados.append(estado)
             
-            resultados.append({"SKU": sku, "Estado": estado, "URL": url})
-
-        # Crear DataFrame
-        df = pd.DataFrame(resultados)
+            # Actualizar progreso
+            progreso.progress((i + 1) / total)
         
-        st.success("¡Procesamiento completado!")
-        st.write("### Vista previa de los datos:")
+        # Añadir la nueva columna al DataFrame original
+        df['Estado_Imagen'] = resultados
+        
+        st.success("✅ ¡Validación terminada!")
         st.dataframe(df)
 
-        # Crear botón de descarga para Excel
+        # Preparar descarga del nuevo Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Resultados')
+            df.to_excel(writer, index=False)
         
         st.download_button(
-            label="📥 Descargar resultados en Excel",
+            label="📥 Descargar Excel con Resultados",
             data=output.getvalue(),
-            file_name="resultado_sku_imagenes.xlsx",
+            file_name="reporte_imagenes_validadas.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
